@@ -107,6 +107,9 @@ import RequestsByBrandPage from "./pages/Admin/RequestsByBrandPage";
 import BrandSelectionPage from "./pages/Admin/BrandSelectionPage";
 import BrandsListMarketing from "./pages/Marketing/BrandsListMarketing";
 import CreateTargetPage from "./pages/Marketing/CreateTargetPage";
+import CentralBrandItemsPage from "./pages/MainAdmin/CentralBrandItemsPage";
+import CentralInventoryPage from "./pages/MainAdmin/CentralBrandItemsPage";
+import CentralLedgerPage from "./pages/MainAdmin/components/CentralLedgerPage";
 
 
 export default function App(): JSX.Element {
@@ -249,6 +252,11 @@ export default function App(): JSX.Element {
             {/* <Route path="superadmin/reciepe" element={<BrandToSfgPage />} /> */}
             <Route path="superadmin/items" element={<BrandItemsLanding />} />
             <Route path="superadmin/brands/:id/items" element={<BrandItemsPage />} />
+            <Route path="superadmin/central-inventories" element={<CentralBrandItemsPage />} />
+            {/* // contoh react-router v6 */}
+            <Route path="/central/:centralId/inventory" element={<CentralInventoryPage/>} />
+            <Route path="/central/:centralId/inventory/:itemId/ledger" element={<CentralLedgerPage/>} />
+
 
             <Route path="superadmin/reciepe" element={<BrandRecipesLanding />} />
             <Route path="superadmin/brands/:brandId/recipes" element={<BrandRecipesListPage />} />

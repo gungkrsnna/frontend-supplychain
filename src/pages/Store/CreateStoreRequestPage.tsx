@@ -268,9 +268,9 @@ export default function CreateStoreRequestPage(): JSX.Element {
                 )}
 
                 {/* Small helper */}
-                {r.item && !(Array.isArray(r.item.measurements) && r.item.measurements.length > 0) && (
+                {/* {r.item && !(Array.isArray(r.item.measurements) && r.item.measurements.length > 0) && (
                   <div className="text-xs text-gray-400 mt-1">UOM default: {r.item.uom?.name ?? (r.item.uom_id ?? "-")}</div>
-                )}
+                )} */}
               </div>
 
               <div className="col-span-1 flex justify-end">

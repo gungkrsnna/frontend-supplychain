@@ -33,7 +33,7 @@ const ROLE_NAV: Record<string, NavItem[]> = {
   superadmin: [
     { icon: <BoxCubeIcon />, name: "Dashboard", path: "/superadmin" },
     // { icon: <GridIcon />, name: "Brand", path: "/superadmin/brands" },
-    { icon: <ListIcon />, name: "Store Inventories", path: "/superadmin/store-inventories" },
+    { icon: <ListIcon />, name: "Central Inventories", path: "/superadmin/central-inventories" },
     { icon: <TableIcon />, name: "Target Production", path: "/superadmin/target-production" },
     { icon: <PageIcon />, name: "Surat Jalan", path: "/superadmin/surat-jalan" },
     // { icon: <PageIcon />, name: "Reciepe", path: "/superadmin/reciepe" },
@@ -43,10 +43,10 @@ const ROLE_NAV: Record<string, NavItem[]> = {
       icon: <GridIcon />,
       name: "Settings",
       subItems: [
-        { name: "Manajemen Brand", path: "/superadmin/brands", pro: false },
-        { name: "Manajemen Store", path: "/superadmin/stores", pro: false },
-        { name: "Item Inventories", path: "/superadmin/items", pro: false },
-        { name: "Manajemen UOM", path: "/superadmin/uoms", pro: false },
+        { name: "Brand Management", path: "/superadmin/brands", pro: false },
+        { name: "Store Management", path: "/superadmin/stores", pro: false },
+        { name: "Item Management", path: "/superadmin/items", pro: false },
+        { name: "UOM Management", path: "/superadmin/uoms", pro: false },
         { name: "Reciepes", path: "/superadmin/reciepe", pro: false },
         { name: "Users", path: "/superadmin/users", pro: false },
       ],

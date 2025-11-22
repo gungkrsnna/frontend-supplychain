@@ -1,4 +1,3 @@
-// src/pages/BrandItemsPage.tsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
@@ -13,11 +12,14 @@ type StoreItem = {
   is_production?: boolean | number;
   category_item_id?: number | null;
   uom_id?: number | null;
+  image?: string | null;      // filename jika diperlukan
+  image_url?: string | null;  // full url dari backend
 };
 
 type Brand = { id: string; nama?: string; kode?: string; logo?: string | null };
 type Uom = { id: number; name?: string; kode?: string };
 type Category = { id: number; name?: string };
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
 export default function BrandItemsPage() {
   const { id: brandId } = useParams<{ id: string }>();
@@ -36,6 +38,11 @@ export default function BrandItemsPage() {
   const [q, setQ] = useState<string>("");
   const [categoryFilter, setCategoryFilter] = useState<number | "">("");
   const [isProductionFilter, setIsProductionFilter] = useState<boolean | "">("");
+
+  // pagination states
+  const [page, setPage] = useState<number>(1);
+  const [limit, setLimit] = useState<number>(25);
+  const [total, setTotal] = useState<number | null>(null); // total rows (if backend provides)
 
   // modal state
   const [isOpen, setIsOpen] = useState(false);
@@ -64,44 +71,44 @@ export default function BrandItemsPage() {
   }, [brandId]);
 
   // show toast if navigation provided a toast message in location.state
-useEffect(() => {
-  const st: any = (location && (location.state as any)) || null;
-  if (!st || !st.toast || !st.toast.message) return;
+  useEffect(() => {
+    const st: any = (location && (location.state as any)) || null;
+    if (!st || !st.toast || !st.toast.message) return;
 
-  const t = st.toast;
-  const msg = String(t.message || "");
-  const type = String(t.type || "info").toLowerCase();
-  if (type === "success") toast.success(msg);
-  else if (type === "error") toast.error(msg);
-  else if (type === "warn" || type === "warning") toast.warn(msg);
-  else toast.info(msg);
+    const t = st.toast;
+    const msg = String(t.message || "");
+    const type = String(t.type || "info").toLowerCase();
+    if (type === "success") toast.success(msg);
+    else if (type === "error") toast.error(msg);
+    else if (type === "warn" || type === "warning") toast.warn(msg);
+    else toast.info(msg);
 
-  // optionally scroll & highlight the createdId (if supplied)
-  const createdId = t.createdId ?? t.created_id ?? null;
-  if (createdId) {
-    // try a few times in case items are still rendering
-    const tryHighlight = (attempt = 0) => {
-      const selector = `[data-item-id="${createdId}"]`;
-      const el: HTMLElement | null = document.querySelector(selector);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        el.classList.add("highlight-new-item");
-        window.setTimeout(() => el.classList.remove("highlight-new-item"), 3000);
-      } else if (attempt < 8) {
-        window.setTimeout(() => tryHighlight(attempt + 1), 250);
-      }
-    };
-    tryHighlight();
-  }
+    // optionally scroll & highlight the createdId (if supplied)
+    const createdId = t.createdId ?? t.created_id ?? null;
+    if (createdId) {
+      // try a few times in case items are still rendering
+      const tryHighlight = (attempt = 0) => {
+        const selector = `[data-item-id="${createdId}"]`;
+        const el: HTMLElement | null = document.querySelector(selector);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.classList.add("highlight-new-item");
+          window.setTimeout(() => el.classList.remove("highlight-new-item"), 3000);
+        } else if (attempt < 8) {
+          window.setTimeout(() => tryHighlight(attempt + 1), 250);
+        }
+      };
+      tryHighlight();
+    }
 
-  // clear toast from history state so it won't re-show on refresh/navigation
-  try {
-    navigate(location.pathname, { replace: true, state: {} });
-  } catch (e) {
-    // ignore
-  }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [location.key]);
+    // clear toast from history state so it won't re-show on refresh/navigation
+    try {
+      navigate(location.pathname, { replace: true, state: {} });
+    } catch (e) {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key]);
 
 
   // show toast once if sessionStorage has the success message from previous page
@@ -126,17 +133,22 @@ useEffect(() => {
     }
   }, []);
 
-  // when filters change, re-fetch
+  // when filters change, re-fetch and reset page to 1
   useEffect(() => {
-    // simple reaction: re-fetch whenever filters change
-    // you can add debounce if needed
+    setPage(1);
     fetchItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, categoryFilter, isProductionFilter]);
+  }, [q, categoryFilter, isProductionFilter, limit]);
+
+  // when page changes, fetch
+  useEffect(() => {
+    fetchItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
 
   async function fetchBrand() {
     try {
-      const resp = await axios.get(`/api/brands/${brandId}`);
+      const resp = await axios.get(`${API_BASE}/api/brands/${brandId}`);
       setBrand(resp.data?.data ?? null);
     } catch (err) {
       console.warn("fetchBrand failed", err);
@@ -146,36 +158,111 @@ useEffect(() => {
   async function fetchItems() {
     setLoading(true);
     try {
-      // call paged/search endpoint with filters
       const params: any = {
         q: q || undefined,
         category: categoryFilter === "" ? undefined : categoryFilter,
-        // send is_production param only if explicitly set (true/false)
         is_production: isProductionFilter === "" ? undefined : (isProductionFilter ? 1 : 0),
-        limit: 200, // adjust as needed
-        page: 1
+        limit: limit,
+        page: page
       };
-      const resp = await axios.get(`/api/brands/${brandId}/items`, { params });
-      // expecting { success: true, data: [...], meta? }
-      const rows = resp.data?.data ?? (Array.isArray(resp.data) ? resp.data : []);
-      setItems(rows);
+
+      const resp = await axios.get(`${API_BASE}/api/brands/${brandId}/items`, { params });
+      const data = resp.data?.data ?? resp.data;
+
+      // try to extract pagination meta
+      const meta = resp.data?.meta ?? resp.data?.pagination ?? resp.data?.paging ?? null;
+      if (meta) {
+        // many APIs use meta.total or meta.last_page
+        const totalRows = meta.total ?? meta.total_rows ?? meta.count ?? null;
+        setTotal(totalRows !== undefined ? Number(totalRows) : null);
+      }
+
+      // rows array
+      const rowsRaw = Array.isArray(data) ? data : (data?.rows ?? data?.items ?? []);
+      // di dalam BrandItemsPage.tsx — ganti mapping yang lama dengan ini
+      function buildImageUrlFromField(API_BASE: string, imageField: any): string | null {
+        if (!imageField) return null;
+        if (typeof imageField === "string") {
+          const s = imageField.trim();
+          if (s === "") return null;
+          // kalau sudah absolute
+          if (s.startsWith("http://") || s.startsWith("https://")) return s;
+          // kalau berupa path seperti /uploads/...
+          if (s.includes("/uploads/")) {
+            const cleaned = s.startsWith("/") ? s : `/${s}`;
+            return API_BASE ? `${API_BASE}${cleaned}` : cleaned;
+          }
+          // anggap filename -> buat ke /uploads/items/<encoded>
+          const candidate = String(s).replace(/^\/+/, "");
+          const encoded = encodeURIComponent(candidate);
+          return API_BASE ? `${API_BASE}/uploads/items/${encoded}` : `/uploads/items/${encoded}`;
+        }
+        // jika backend mengirim object (rare), coba ambil properti umum
+        if (typeof imageField === "object") {
+          const maybe = imageField.url ?? imageField.path ?? imageField.filename ?? null;
+          return maybe ? buildImageUrlFromField(API_BASE, maybe) : null;
+        }
+        return null;
+      }
+
+      const normalized = (rowsRaw || []).map((r: any) => {
+        // prefer backend-provided image_url
+        if (r.image_url && typeof r.image_url === "string" && r.image_url.trim() !== "") {
+          return { ...r, image_url: r.image_url };
+        }
+        // fallback to common fields
+        const imageField = r.image ?? r.image_path ?? r.img ?? null;
+        const url = buildImageUrlFromField(API_BASE, imageField);
+        return { ...r, image_url: url };
+      });
+
+      // debug: tampilkan sample response & normalized untuk inspeksi
+      console.debug("[fetchItems] resp.data sample:", resp.data && (resp.data.data ?? resp.data));
+      console.debug("[fetchItems] normalized sample (first 10):", normalized.slice(0,10).map(i => ({ id: i.id, image: i.image, image_path: i.image_path, image_url: i.image_url })));
+
+      // set items seperti semula
+      if (meta) {
+        setItems(normalized);
+      } else {
+        setTotal(normalized.length);
+        const start = (page - 1) * limit;
+        setItems(normalized.slice(start, start + limit));
+      }
+
+
+
+
+      // If backend returns full page already, set items directly. Otherwise, if backend returned entire set (no pagination), perform client-side slicing
+      if (meta) {
+        setItems(normalized);
+      } else {
+        // backend didn't provide meta; treat normalized as full list and slice for client-side pagination
+        setTotal(normalized.length);
+        const start = (page - 1) * limit;
+        const sliced = normalized.slice(start, start + limit);
+        setItems(sliced);
+      }
+
       return;
     } catch (err) {
       console.warn("fetchItems primary endpoint failed, trying fallback", err);
-      // fallback: try older endpoints /api/brands/:id/items (non-paged) or /api/item?brand_id=
+      // keep your existing fallback logic but also respect pagination
       try {
         const resp2 = await axios.get(`/api/brands/${brandId}/items`);
         const rows2 = resp2.data?.data ?? (Array.isArray(resp2.data) ? resp2.data : []);
-        // apply client-side filters as fallback
         const filtered = applyClientFilters(rows2);
-        setItems(filtered);
+        setTotal(filtered.length);
+        const start = (page - 1) * limit;
+        setItems(filtered.slice(start, start + limit));
         return;
       } catch (e) {
         try {
           const resp3 = await axios.get("/api/item", { params: { brand_id: brandId } });
           const rows3 = resp3.data?.data ?? (Array.isArray(resp3.data) ? resp3.data : []);
           const filtered = applyClientFilters(rows3);
-          setItems(filtered);
+          setTotal(filtered.length);
+          const start = (page - 1) * limit;
+          setItems(filtered.slice(start, start + limit));
           return;
         } catch (e2) {
           console.error("fetchItems fallback failed", e2);
@@ -276,6 +363,45 @@ useEffect(() => {
     }
   }
 
+  // quick upload image for existing item (used by the file input in table)
+  async function handleQuickUploadImage(itemId: number, file: File | null) {
+    if (!file) return toast.error("File tidak dipilih");
+    const allowed = ["image/png","image/jpeg","image/webp"];
+    if (!allowed.includes(file.type)) return toast.error("Tipe file tidak didukung");
+    if (file.size > 2 * 1024 * 1024) return toast.error("Maks 2MB");
+
+    const fd = new FormData();
+    fd.append("image", file);
+
+    try {
+      const resp = await axios.post(`/api/item/${itemId}/image`, fd, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      const updated = resp.data?.data ?? resp.data;
+      // update item in list
+      setItems(prev => prev.map(i => (i.id === updated.id ? updated : i)));
+      toast.success("Gambar diunggah");
+    } catch (err: any) {
+      console.error("quick upload error", err);
+      toast.error(err?.response?.data?.message || "Gagal upload gambar");
+    }
+  }
+
+  // delete image endpoint
+  async function handleDeleteImage(itemId: number) {
+    if (!confirm("Hapus gambar item ini?")) return;
+    try {
+      await axios.delete(`/api/item/${itemId}/image`);
+      // update items: clear image_url for that item
+      setItems(prev => prev.map(i => (i.id === itemId ? { ...i, image: null, image_url: null } : i)));
+      toast.success("Gambar dihapus");
+    } catch (err: any) {
+      console.error("delete image error", err);
+      toast.error(err?.response?.data?.message || "Gagal menghapus gambar");
+    }
+  }
+
+
   async function submitForm(e?: React.FormEvent) {
     e?.preventDefault();
     if (!form.name) return toast.error("Nama wajib diisi");
@@ -313,45 +439,40 @@ useEffect(() => {
   }
 
   useEffect(() => {
-  try {
-    const raw = sessionStorage.getItem("item_created_toast");
-    if (!raw) return;
-    const obj = JSON.parse(raw);
-    if (obj && obj.message) {
-      const type = (obj.type || "info").toString().toLowerCase();
-      if (type === "success") toast.success(String(obj.message));
-      else if (type === "error") toast.error(String(obj.message));
-      else if (type === "warn" || type === "warning") toast.warn(String(obj.message));
-      else toast.info(String(obj.message));
-    }
+    try {
+      const raw = sessionStorage.getItem("item_created_toast");
+      if (!raw) return;
+      const obj = JSON.parse(raw);
+      if (obj && obj.message) {
+        const type = (obj.type || "info").toString().toLowerCase();
+        if (type === "success") toast.success(String(obj.message));
+        else if (type === "error") toast.error(String(obj.message));
+        else if (type === "warn" || type === "warning") toast.warn(String(obj.message));
+        else toast.info(String(obj.message));
+      }
 
-    // optional: scroll & highlight created row if createdId tersedia
-    const createdId = obj?.createdId ?? obj?.created_id ?? null;
-    if (createdId) {
-      // allow items to render first (if fetchItems is async), try a few times
-      const tryHighlight = (attempt = 0) => {
-        const selector = `[data-item-id="${createdId}"]`;
-        const el: HTMLElement | null = document.querySelector(selector);
-        if (el) {
-          // scroll into view (center)
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-          // add temporary highlight
-          el.classList.add("highlight-new-item");
-          // remove highlight after 3s
-          window.setTimeout(() => el.classList.remove("highlight-new-item"), 3000);
-        } else if (attempt < 8) {
-          // retry after small delay (to wait for items rendering)
-          window.setTimeout(() => tryHighlight(attempt + 1), 250);
-        }
-      };
-      tryHighlight();
+      // optional: scroll & highlight created row if createdId tersedia
+      const createdId = obj?.createdId ?? obj?.created_id ?? null;
+      if (createdId) {
+        const tryHighlight = (attempt = 0) => {
+          const selector = `[data-item-id="${createdId}"]`;
+          const el: HTMLElement | null = document.querySelector(selector);
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+            el.classList.add("highlight-new-item");
+            window.setTimeout(() => el.classList.remove("highlight-new-item"), 3000);
+          } else if (attempt < 8) {
+            window.setTimeout(() => tryHighlight(attempt + 1), 250);
+          }
+        };
+        tryHighlight();
+      }
+    } catch (e) {
+      console.warn("sessionStorage read error for item_created_toast", e);
+    } finally {
+      try { sessionStorage.removeItem("item_created_toast"); } catch {}
     }
-  } catch (e) {
-    console.warn("sessionStorage read error for item_created_toast", e);
-  } finally {
-    try { sessionStorage.removeItem("item_created_toast"); } catch {}
-  }
-}, []);
+  }, []);
 
 
   // buka modal hapus
@@ -380,6 +501,9 @@ useEffect(() => {
     setCategoryFilter("");
     setIsProductionFilter("");
   }
+
+  const totalPages = total ? Math.max(1, Math.ceil(total / limit)) : 1;
+  const offset = (page - 1) * limit;
 
   return (
     <div className="p-6">
@@ -437,8 +561,14 @@ useEffect(() => {
             </div>
           </div>
 
-          <div className="flex gap-2">
-            <button onClick={fetchItems} className="px-3 py-2 bg-indigo-600 text-white rounded">Apply</button>
+          <div className="flex items-center gap-2 ml-auto">
+            <label className="text-xs">Tampil</label>
+            <select value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }} className="border px-3 py-2 rounded">
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
             <button onClick={handleResetFilters} className="px-3 py-2 border rounded">Reset</button>
           </div>
         </div>
@@ -450,46 +580,115 @@ useEffect(() => {
         ) : items.length === 0 ? (
           <div className="p-6 text-center text-gray-500">Belum ada item</div>
         ) : (
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-2">#</th>
-                <th className="px-4 py-2">Nama</th>
-                <th className="px-4 py-2">UOM</th>
-                <th className="px-4 py-2">Category</th>
-                <th className="px-4 py-2">Production</th>
-                <th className="px-4 py-2">Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((it, idx) => (
-                <tr key={it.id} className="border-t">
-                  <td className="px-4 py-3">{idx + 1}</td>
-                  <td className="px-4 py-3">{it.name}</td>
-                  <td className="px-4 py-3">{getUomName(it.uom_id)}</td>
-                  <td className="px-4 py-3">{getCategoryName(it.category_item_id)}</td>
-                  <td className="px-4 py-3">{it.is_production ? "Yes" : "No"}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => navigate(`/superadmin/items/${it.id}/view`)}
-                        className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-                      >
-                        Lihat
-                      </button>
-                      <button
-                        onClick={() => navigate(`/superadmin/items/${it.id}/edit`)}
-                        className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-                      >
-                        Edit
-                      </button>
-                      <button onClick={() => confirmDelete(it)} className="px-2 py-1 bg-red-600 text-white rounded">Hapus</button>
-                    </div>
-                  </td>
+          <>
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2">#</th>
+                  <th className="px-4 py-2">Gambar</th>
+                  <th className="px-4 py-2">Nama</th>
+                  <th className="px-4 py-2">UOM</th>
+                  <th className="px-4 py-2">Category</th>
+                  <th className="px-4 py-2">Production</th>
+                  <th className="px-4 py-2">Aksi</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {items.map((it, idx) => (
+                  <tr key={it.id} className="border-t" data-item-id={it.id}>
+                    <td className="px-4 py-3">{offset + idx + 1}</td>
+
+                    {/* gambar */}
+                    <td className="px-4 py-3">
+                      {it.image_url ? (
+                        <img
+                          src={it.image_url ?? '/placeholder.png'}
+                          alt={it.name}
+                          className="w-16 h-12 object-cover rounded"
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            const el = e.target as HTMLImageElement;
+                            el.onerror = null;
+                            el.src = '/placeholder.png';
+                          }}
+                        />
+
+                      ) : (
+                        <div className="w-16 h-12 flex items-center justify-center text-xs text-gray-400 bg-gray-100 rounded">No Img</div>
+                      )}
+                    </td>
+
+                    <td className="px-4 py-3">{it.name}</td>
+                    <td className="px-4 py-3">{getUomName(it.uom_id)}</td>
+                    <td className="px-4 py-3">{getCategoryName(it.category_item_id)}</td>
+                    <td className="px-4 py-3">{it.is_production ? "Yes" : "No"}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2 items-center">
+                        <button
+                          onClick={() => navigate(`/superadmin/items/${it.id}/view`)}
+                          className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                        >
+                          Lihat
+                        </button>
+                        <button
+                          onClick={() => navigate(`/superadmin/items/${it.id}/edit`)}
+                          className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                        >
+                          Edit
+                        </button>
+
+                        <button onClick={() => confirmDelete(it)} className="px-2 py-1 bg-red-600 text-white rounded">Hapus</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+
+            </table>
+
+            {/* pagination */}
+            <div className="mt-4 flex items-center justify-between">
+              <div className="text-sm text-gray-600">Menampilkan {Math.min(total ?? offset + items.length, offset + 1)} - {offset + items.length} dari {total ?? "?"}</div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage(prev => Math.max(1, prev - 1))}
+                  disabled={page <= 1}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >Prev</button>
+
+                {/* simple page numbers: show first, current-1,current,current+1, last */}
+                <div className="flex items-center gap-1">
+                  {page > 2 && (
+                    <button onClick={() => setPage(1)} className="px-2 py-1 border rounded">1</button>
+                  )}
+                  {page > 3 && <span className="px-2">...</span>}
+
+                  {page - 1 >= 1 && (
+                    <button onClick={() => setPage(page - 1)} className="px-2 py-1 border rounded">{page - 1}</button>
+                  )}
+
+                  <button className="px-2 py-1 border rounded bg-gray-100">{page}</button>
+
+                  {page + 1 <= totalPages && (
+                    <button onClick={() => setPage(page + 1)} className="px-2 py-1 border rounded">{page + 1}</button>
+                  )}
+
+                  {page < totalPages - 2 && <span className="px-2">...</span>}
+                  {page < totalPages - 1 && (
+                    <button onClick={() => setPage(totalPages)} className="px-2 py-1 border rounded">{totalPages}</button>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => setPage(prev => prev + 1)}
+                  disabled={total !== null ? page >= totalPages : items.length < limit}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >Next</button>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
